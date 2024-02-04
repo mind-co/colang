@@ -15,8 +15,6 @@ function add_thought(thought, thoughts)
     return vcat(thoughts, PromptingTools.UserMessage(thought))
 end
 
-const AFFIRMATIVE_QUESTION = "your role is to respond \"y\" or \"n\" to the following questions."
-
 # Types for the underlying thoughts. This is a way of modelling a "yes/no" question to a
 # language model. If the language model response with only "y" or "n", then we can be
 # confident that the response is a "yes" or "no". If the response is anything else, then
@@ -30,9 +28,9 @@ struct ThoughtYes <: AbstractThoughtBool end # whether the thought is true
 struct ThoughtNo <: AbstractThoughtBool end # whether the thought is false
 struct Fart <: AbstractThoughtBool end # whether the thought is a fart, meaning it failed
 
-struct ThoughtBool{R<:AbstractThoughtBool}
+struct ThoughtBool{R<:AbstractThoughtBool,S<:AbstractString}
     answer::R
-    response::String
+    response::S
 end
 ttrue() = ThoughtBool(ThoughtYes(), "")
 tfalse() = ThoughtBool(ThoughtNo(), "")
@@ -53,7 +51,7 @@ Char(t::ThoughtBool{ThoughtNo}) = 'n'
 Char(t::ThoughtBool{Fart}) = '?'
 
 # Summary functions
-poll(t::Vector{ThoughtBool}) = join(Char.(t))
+poll(t::Vector{<:ThoughtBool}) = join(Char.(t))
 poll(t::ThoughtBool) = Char(t)
 
 # Mean/median/mode functions
@@ -70,13 +68,13 @@ mode(t::Vector{ThoughtBool}) = mode(yes.(t))
 """if y, then ThoughtYes. If n, then ThoughtNo. Otherwise, Fart."""
 function ThoughtBool(s::AbstractString)
     z = lowercase(s) # Prevents Y and N from being interpreted as "yes" and "no"
-    if z == "y" || z == "yes" # SHould relax this with fine tuning or something
-        return ttrue()
-    elseif z == "n" || z == "no"
-        return tfalse()
+    if z == "y" || z == "yes" || startswith(z, "yes")# SHould relax this with fine tuning or something
+        return ThoughtBool(ThoughtYes(), s)
+    elseif z == "n" || z == "no" || startswith(z, "no")
+        return ThoughtBool(ThoughtNo(), s)
     else
         @warn "ThoughtBool: Farted with $s"
-        return tfart()
+        return ThoughtBool(Fart(), s)
     end
 end
 
@@ -98,11 +96,12 @@ function +(t1::ThoughtBool, t2::ThoughtBool)
     end
 end
 
-prop_yes(t::Vector{ThoughtBool}) = sum(yes.(t)) / length(t)
-prop_no(t::Vector{ThoughtBool}) = sum(no.(t)) / length(t)
-prop_fart(t::Vector{ThoughtBool}) = sum(fart.(t)) / length(t)
+prop_yes(t::Vector{<:ThoughtBool}) = sum(yes.(t)) / length(t)
+prop_no(t::Vector{<:ThoughtBool}) = sum(no.(t)) / length(t)
+prop_fart(t::Vector{<:ThoughtBool}) = sum(fart.(t)) / length(t)
 
 # Boolean multiplication
+import Base.*
 function *(t1::ThoughtBool, t2::ThoughtBool)
     if yes(t1) && yes(t2)
         return ttrue()
@@ -158,8 +157,58 @@ function →(t1::ThoughtBool, t2::ThoughtBool)
     end
 end
 
+"""
+    contains_affirmative(t::ThoughtBool)
+
+Returns `true` if the thought contains an affirmative, and `false` otherwise.
+"""
+function contains_affirmative(t::ThoughtBool)
+    # 
+    messages = vcat(
+        set_system_personality(PROMPT_CONTAINS_AFFIRMATIVE),
+        PromptingTools.UserMessage(question)
+    )
+
+    # 
+    schema = PromptingTools.OllamaSchema()
+    generated = PromptingTools.aigenerate(schema, messages; model="phi:chat", verbose=false)
+    content = generated.content
+    return ThoughtBool(content)
+end
+
+const PROMPT_CONTAINS_AFFIRMATIVE = """
+your role is to review a document and determine if it contains an affirmative. Respond
+only with y or n.
+
+Example:
+user: Yes, it seems to be the case
+you: y
+
+user: no my mom says i can't go to the movies
+you: n
 
 """
+
+
+
+const PROMPT_YES_NO = """your role is to respond \"y\" or \"n\" to the following questions.
+
+Example:
+
+user: Do you want to go to the movies?
+(y/n): y
+
+user: Is water usually clear?
+(y/n): y
+
+user: Was Richard Nixon impeached?
+(y/n): n
+"""
+
+
+"""
+    yesorno(question::String)
+
 Returns a `ThoughtBool` that represents the answer to the question.
 
 # Arguments
@@ -185,16 +234,16 @@ question = "user: Tell me, do you want to go to the movies?"
 yesorno(question)
 ```
 """
-function yesorno(question)
+function yesorno(question; model="mistral:text")
     # 
     messages = vcat(
-        set_system_personality(AFFIRMATIVE_QUESTION),
-        PromptingTools.UserMessage(question)
+        set_system_personality(PROMPT_YES_NO),
+        PromptingTools.UserMessage(question * "\n(y/n): ")
     )
 
     # 
     schema = PromptingTools.OllamaSchema()
-    generated = PromptingTools.aigenerate(schema, messages; model="openhermes2.5-mistral", verbose=false)
+    generated = PromptingTools.aigenerate(schema, messages; model=model, verbose=false)
     content = generated.content
     return ThoughtBool(content)
 end
