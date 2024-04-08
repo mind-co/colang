@@ -16,12 +16,19 @@ using PromptingTools
 # 
 """
 An `AbstractThought` is a thought that is accepted or send by a voice.
+"""
+abstract type AbstractThought end
+
+"""
 An `AbstractMemory` is a memory that is something you should take into
 account when you are thinking about during your process.
 """
-abstract type AbstractThought end
 abstract type AbstractMemory end
 
+"""
+An `AbstractVoice` is a function mapping an input thought to an output thought.
+"""
+abstract type AbstractVoice end
 
                                                                                                             
 #
@@ -134,19 +141,15 @@ asthought(t::AbstractThought) = t
 struct Empty <: AbstractThought end
 
 """
-`CategoricalThought` is a thought that can be categorized.
-
-Has subtypes:
-    
-- Affirmative/negative: `Yes`, `No`, and `Maybe`.
+`AbstractCategoricalThought` is a thought that can be categorized.
 """
-abstract type CategoricalThought <: AbstractThought end
+abstract type AbstractCategoricalThought <: AbstractThought end
 
 """
 YesNoMaybe is a categorical type that can be used to represent
 yes, no, or maybe.
 """
-abstract type YesNoMaybe <: AbstractThought end
+abstract type YesNoMaybe <: AbstractCategoricalThought end
 struct Yes <: YesNoMaybe end
 struct No <: YesNoMaybe end
 struct Maybe <: YesNoMaybe end
